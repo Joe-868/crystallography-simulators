@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real to Reciprocal Space Mapping Simulator Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050508; font-family: 'Inter', sans-serif; color: #fff; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        .floating-panel {
+            position: absolute; bottom: 20px;
+            background: rgba(15, 20, 30, 0.85); backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 255, 255, 0.3); border-radius: 16px;
+            padding: 24px; z-index: 10; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+            width: 340px;
+        }
+
+        #panel-left { left: 20px; }
+        #panel-right { right: 20px; }
+        
+        .control-group { margin-bottom: 20px; }
+        .control-label { display: flex; justify-content: space-between; font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
+        .val-display { color: #00ffff; font-weight: 600; font-family: monospace; font-size: 0.95rem; }
+        
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+            background: #00ffff; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+        }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255, 255, 255, 0.2); border-radius: 2px; }
+
+        .title-overlay {
+            position: absolute; top: 20px; z-index: 5;
+            font-size: 1.1rem; font-weight: bold; letter-spacing: 1px;
+            text-transform: uppercase; padding: 10px 20px; border-radius: 12px;
+            background: rgba(15, 20, 30, 0.85); backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        #title-real { left: 20px; color: #22c55e; border-left: 4px solid #22c55e; }
+        #title-recip { right: 20px; color: #facc15; border-right: 4px solid #facc15; }
+
+        .stat-box {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);
+            padding: 14px; border-radius: 12px; margin-top: 14px;
+        }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
+        .stat-value { font-family: monospace; font-weight: bold; }
+        .text-real { color: #22c55e; }
+        .text-recip { color: #facc15; }
+    </style>
+</head>
+<body>
+
+    <!-- On-screen Titles -->
+    <div id="title-real" class="title-overlay">Real Space (Crystal Lattice)</div>
+    <div id="title-recip" class="title-overlay">Reciprocal Space (Diffraction Lattice)</div>
+
+    <!-- Left UI Panel (Controls) -->
+    <div id="panel-left" class="floating-panel">
+        <h1 class="text-xl font-bold text-white mb-2">Crystal Parameters</h1>
+        <p class="text-xs text-gray-400 mb-5">Control lattice spacing & Miller indices</p>
+        
+        <div class="control-group">
+            <div class="control-label">
+                <span>Lattice Constant (a)</span>
+                <span id="val-a" class="val-display">2.00 Å</span>
+            </div>
+            <input type="range" id="slider-a" min="1.0" max="4.0" step="0.1" value="2.0">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (h)</span> <span id="val-h" class="val-display">1</span></div>
+            <input type="range" id="slider-h" min="-2" max="2" step="1" value="1">
+        </div>
+        
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (k)</span> <span id="val-k" class="val-display">1</span></div>
+            <input type="range" id="slider-k" min="-2" max="2" step="1" value="1">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (l)</span> <span id="val-l" class="val-display">0</span></div>
+            <input type="range" id="slider-l" min="-2" max="2" step="1" value="0">
+        </div>
+    </div>
+
+    <!-- Right UI Panel (Information) -->
+    <div id="panel-right" class="floating-panel">
+        <h2 class="text-xl font-bold text-white mb-2">Mapping Physics</h2>
+        <p class="text-xs text-gray-400 mb-4 leading-relaxed">
+            Real-space planes (hkl) map to a specific point in reciprocal space. 
+            The reciprocal distance is inversely proportional to interplanar spacing ($|G| = 1/d$).
+        </p>
+
+        <div class="stat-box">
+            <div class="stat-row">
+                <span class="text-gray-300">Selected Plane (hkl):</span>
+                <span id="stat-hkl" class="stat-value text-white">(1, 1, 0)</span>
+            </div>
+            <div class="stat-row">
+                <span class="text-gray-300">Plane Spacing (d):</span>
+                <span id="stat-d" class="stat-value text-real">1.41 Å</span>
+            </div>
+            <div class="stat-row">
+                <span class="text-gray-300">Reciprocal Dist (|G| = 1/d):</span>
+                <span id="stat-g" class="stat-value text-recip">0.71 Å⁻¹</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        // --- Global State & Configuration ---
+        let params = {
+            a: 2.0,      // Real lattice constant
+            h: 1,        // Miller index h
+            k: 1,        // Miller index k
+            l: 0         // Miller index l
+        };
+
+        const VISUAL_SCALE = 5.0; // Base scale for rendering distances
+        const CENTER_REAL = new THREE.Vector3(-8, 0, 0);
+        const CENTER_RECIP = new THREE.Vector3(8, 0, 0);
+        const THICKNESS = 0.03;   // Clean fine line thickness
+        
+        let scene, camera, renderer, controls;
+        
+        // Groups for managing 3D objects
+        const groups = {
+            realGrid: new THREE.Group(),
+            realPlanes: new THREE.Group(),
+            realVector: new THREE.Group(),
+            recipGrid: new THREE.Group(),
+            recipVector: new THREE.Group()
+        };
+
+        // --- Core Materials (Enhanced Brighter Contrast) ---
+        const materials = {
+            atom: new THREE.MeshBasicMaterial({ color: 0x94a3b8 }), // Muted grey-blue for atoms
+            atomCenter: new THREE.MeshBasicMaterial({ color: 0x22c55e }), // Bright green origin
+            
+            // Increased brightness for reciprocal lattice points so they pop clearly against dark background
+            recipPoint: new THREE.MeshBasicMaterial({ color: 0xcc9900 }), // Brighter unselected yellow
+            recipActive: new THREE.MeshBasicMaterial({ color: 0xffff00, blending: THREE.AdditiveBlending }), // Ultra bright glowing yellow active point
+            recipCenter: new THREE.MeshBasicMaterial({ color: 0xffffff }), // White origin
+            
+            // High-visibility luminous green for real crystal planes
+            plane: new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
+            planeEdge: new THREE.LineBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.9 }),
+            
+            vectorReal: new THREE.MeshBasicMaterial({ color: 0xff3333 }), // Red vector line
+            vectorRecip: new THREE.MeshBasicMaterial({ color: 0xffff00 }) // Yellow vector line
+        };
+
+        init();
+        animate();
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050508, 0.015);
+
+            // 2. Camera Setup (Positioned to see both spaces side-by-side clearly)
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 12, 36);
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.sortObjects = true;
+            container.appendChild(renderer.domElement);
+
+            // 4. Lighting (Ambient for soft fill)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+            scene.add(ambientLight);
+
+            // 5. OrbitControls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, -1, 0); 
+
+            // 6. Add Groups
+            Object.values(groups).forEach(g => scene.add(g));
+
+            drawEnvironment();
+            rebuildAll();
+            setupEvents();
+        }
+
+        // Helper for 3D thick cylinder vector lines
+        function createThickLine(p1, p2, material, radius = THICKNESS) {
+            const distance = p1.distanceTo(p2);
+            const geometry = new THREE.CylinderGeometry(radius, radius, distance, 12, 1, false);
+            const cylinder = new THREE.Mesh(geometry, material);
+            cylinder.position.copy(p1).lerp(p2, 0.5);
+            
+            const direction = new THREE.Vector3().subVectors(p2, p1).normalize();
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+            cylinder.applyQuaternion(quaternion);
+            
+            return cylinder;
+        }
+
+        function drawEnvironment() {
+            // Divider line in the middle
+            const lineGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, -16, 0),
+                new THREE.Vector3(0, 16, 0)
+            ]);
+            const lineMat = new THREE.LineDashedMaterial({ color: 0x333344, dashSize: 0.5, gapSize: 0.5 });
+            const line = new THREE.Line(lineGeo, lineMat);
+            line.computeLineDistances();
+            scene.add(line);
+            
+            // Floor Grids
+            const gridReal = new THREE.GridHelper(12, 12, 0x223322, 0x111a11);
+            gridReal.position.copy(CENTER_REAL);
+            gridReal.position.y = -6;
+            scene.add(gridReal);
+
+            const gridRecip = new THREE.GridHelper(12, 12, 0x333322, 0x1a1a11);
+            gridRecip.position.copy(CENTER_RECIP);
+            gridRecip.position.y = -6;
+            scene.add(gridRecip);
+        }
+
+        function rebuildAll() {
+            buildRealSpace();
+            buildReciprocalSpace();
+            updateMapping();
+        }
+
+        function buildRealSpace() {
+            groups.realGrid.clear();
+            const N = 1; // 3x3x3 grid (-1 to 1)
+            const spacing = params.a * (VISUAL_SCALE / 2.0);
+            
+            const atomGeo = new THREE.SphereGeometry(0.25, 32, 32);
+
+            for(let i = -N; i <= N; i++) {
+                for(let j = -N; j <= N; j++) {
+                    for(let k = -N; k <= N; k++) {
+                        const isOrigin = (i===0 && j===0 && k===0);
+                        const mat = isOrigin ? materials.atomCenter : materials.atom;
+                        
+                        const atom = new THREE.Mesh(atomGeo, mat);
+                        atom.position.set(
+                            CENTER_REAL.x + i * spacing,
+                            CENTER_REAL.y + j * spacing,
+                            CENTER_REAL.z + k * spacing
+                        );
+                        groups.realGrid.add(atom);
+                    }
+                }
+            }
+        }
+
+        function buildReciprocalSpace() {
+            groups.recipGrid.clear();
+            
+            const a_star = (1.0 / params.a) * (VISUAL_SCALE * 2.0); 
+            const N = 2; // 5x5x5 grid
+            const pointGeo = new THREE.SphereGeometry(0.22, 16, 16); // Slightly enlarged for visibility
+            
+            for(let i = -N; i <= N; i++) {
+                for(let j = -N; j <= N; j++) {
+                    for(let k = -N; k <= N; k++) {
+                        const isOrigin = (i===0 && j===0 && k===0);
+                        const mat = isOrigin ? materials.recipCenter : materials.recipPoint;
+                        
+                        const point = new THREE.Mesh(pointGeo, mat);
+                        point.position.set(
+                            CENTER_RECIP.x + i * a_star,
+                            CENTER_RECIP.y + j * a_star,
+                            CENTER_RECIP.z + k * a_star
+                        );
+                        point.userData = { h: i, k: j, l: k };
+                        groups.recipGrid.add(point);
+                    }
+                }
+            }
+        }
+
+        function updateMapping() {
+            groups.realPlanes.clear();
+            groups.realVector.clear();
+            groups.recipVector.clear();
+
+            const { h, k, l, a } = params;
+            
+            if (h === 0 && k === 0 && l === 0) {
+                updateUI(0, 0);
+                resetReciprocalHighlight();
+                return;
+            }
+
+            // Physics Calculations
+            const normal = new THREE.Vector3(h, k, l);
+            const hkl_magnitude = normal.length();
+            const d = a / hkl_magnitude;
+            const g_mag = 1.0 / d;
+            
+            updateUI(d, g_mag);
+
+            const dir = normal.clone().normalize();
+
+            // 1. Draw Real Space Planes
+            const visual_d = d * (VISUAL_SCALE / 2.0);
+            const planeSize = VISUAL_SCALE * 3.2;
+            const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+            const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+
+            for(let n = -1; n <= 1; n++) {
+                const plane = new THREE.Mesh(planeGeo, materials.plane);
+                const pos = dir.clone().multiplyScalar(n * visual_d);
+                plane.position.copy(CENTER_REAL).add(pos);
+                plane.quaternion.copy(quaternion);
+                
+                // Plane border edges for clarity
+                const edges = new THREE.EdgesGeometry(planeGeo);
+                const line = new THREE.LineSegments(edges, materials.planeEdge);
+                plane.add(line);
+
+                groups.realPlanes.add(plane);
+            }
+
+            // Real Space Normal Vector Cylinder
+            const pRealStart = CENTER_REAL.clone();
+            const pRealEnd = CENTER_REAL.clone().add(dir.clone().multiplyScalar(visual_d));
+            const vecRealMesh = createThickLine(pRealStart, pRealEnd, materials.vectorReal, THICKNESS * 1.2);
+            groups.realVector.add(vecRealMesh);
+
+            // 2. Update Reciprocal Space Highlights
+            let targetPos = null;
+            groups.recipGrid.children.forEach(mesh => {
+                if(mesh.userData.h === h && mesh.userData.k === k && mesh.userData.l === l) {
+                    mesh.material = materials.recipActive; // Ultra bright glowing active yellow
+                    mesh.scale.set(1.5, 1.5, 1.5);
+                    targetPos = mesh.position.clone();
+                } else if (!(mesh.userData.h === 0 && mesh.userData.k === 0 && mesh.userData.l === 0)) {
+                    mesh.material = materials.recipPoint;
+                    mesh.scale.set(1, 1, 1);
+                }
+            });
+
+            // Reciprocal Space Vector Cylinder (pointing from origin to active reciprocal point)
+            if (targetPos) {
+                const pRecipStart = CENTER_RECIP.clone();
+                const vecRecipMesh = createThickLine(pRecipStart, targetPos, materials.vectorRecip, THICKNESS * 1.2);
+                groups.recipVector.add(vecRecipMesh);
+            }
+        }
+
+        function resetReciprocalHighlight() {
+            groups.recipGrid.children.forEach(mesh => {
+                if (!(mesh.userData.h === 0 && mesh.userData.k === 0 && mesh.userData.l === 0)) {
+                    mesh.material = materials.recipPoint;
+                    mesh.scale.set(1, 1, 1);
+                }
+            });
+        }
+
+        function updateUI(d, g) {
+            document.getElementById('stat-hkl').innerText = `(${params.h}, ${params.k}, ${params.l})`;
+            document.getElementById('stat-d').innerText = d === 0 ? "Infinity" : `${d.toFixed(2)} Å`;
+            document.getElementById('stat-g').innerText = g === 0 ? "0" : `${g.toFixed(2)} Å⁻¹`;
+        }
+
+        function setupEvents() {
+            document.getElementById('slider-a').addEventListener('input', (e) => {
+                params.a = parseFloat(e.target.value);
+                document.getElementById('val-a').innerText = params.a.toFixed(2) + ' Å';
+                rebuildAll();
+            });
+
+            const updateIndices = () => {
+                params.h = parseInt(document.getElementById('slider-h').value);
+                params.k = parseInt(document.getElementById('slider-k').value);
+                params.l = parseInt(document.getElementById('slider-l').value);
+                
+                document.getElementById('val-h').innerText = params.h;
+                document.getElementById('val-k').innerText = params.k;
+                document.getElementById('val-l').innerText = params.l;
+                
+                updateMapping();
+            };
+
+            document.getElementById('slider-h').addEventListener('input', updateIndices);
+            document.getElementById('slider-k').addEventListener('input', updateIndices);
+            document.getElementById('slider-l').addEventListener('input', updateIndices);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
