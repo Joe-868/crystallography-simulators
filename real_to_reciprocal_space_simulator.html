@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real to Reciprocal Space Mapping Simulator Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --text: #e6eef8;
+            --muted: #a9b8cc;
+            --panel: rgba(10, 16, 28, 0.88);
+            --border: rgba(140, 190, 255, 0.22);
+            --real: #34d399;
+            --recip: #ffd34d;
+            --accent: #38e1ff;
+        }
+        html, body { margin: 0; height: 100%; }
+        body {
+            overflow: hidden; color: var(--text);
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: radial-gradient(1200px 800px at 30% 20%, #12203a 0%, #0a1222 45%, #05070c 100%);
+            background-attachment: fixed;
+        }
+        :root { --sidebar: 380px; }
+        /* Desktop: both panels live in a right sidebar; the canvas fills only the area to its left */
+        #canvas-container { position: absolute; top: 0; left: 0; bottom: 0; right: var(--sidebar); z-index: 1; }
+
+        #sheet {
+            position: absolute; top: 0; right: 0; bottom: 0; width: var(--sidebar); box-sizing: border-box; z-index: 10;
+            overflow-y: auto; background: var(--panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+            border-left: 1px solid var(--border); box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+        }
+
+        .floating-panel { box-sizing: border-box; padding: 24px; font-variant-numeric: tabular-nums; }
+        #panel-right { border-top: 1px solid var(--border); }
+        .panel-title { font-size: 1.15rem; font-weight: 700; color: var(--text); margin: 0 0 6px; line-height: 1.3; }
+        .panel-sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+
+        .control-group { margin-bottom: 18px; }
+        .control-group:last-child { margin-bottom: 0; }
+        .control-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+        .val-display { color: var(--accent); font-weight: 600; font-size: 0.95rem; font-variant-numeric: tabular-nums;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+        input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; background: transparent; margin: 0; height: 20px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255, 255, 255, 0.18); border-radius: 2px; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; margin-top: -6px;
+            background: var(--accent); cursor: pointer; border: 2px solid #0a1222; box-sizing: content-box;
+            box-shadow: 0 0 0 1px rgba(56, 225, 255, 0.5);
+        }
+        input[type=range]::-moz-range-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255, 255, 255, 0.18); border-radius: 2px; }
+        input[type=range]::-moz-range-thumb {
+            height: 12px; width: 12px; border-radius: 50%; background: var(--accent); cursor: pointer;
+            border: 2px solid #0a1222; box-shadow: 0 0 0 1px rgba(56, 225, 255, 0.5);
+        }
+        input[type=range]:focus { outline: none; }
+        input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+
+        .title-overlay {
+            position: absolute; top: 20px; z-index: 5;
+            font-size: 1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            padding: 10px 18px; border-radius: 14px; color: var(--text);
+            background: var(--panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+            border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+        }
+        #title-real { left: 20px; border-left: 4px solid var(--real); }
+        #title-recip { right: calc(var(--sidebar) + 20px); border-right: 4px solid var(--recip); }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(140, 190, 255, 0.16);
+            padding: 14px; border-radius: 12px; margin-top: 14px;
+        }
+        .stat-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 0.88rem; color: var(--muted); }
+        .stat-row:last-of-type { margin-bottom: 0; }
+        .stat-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .text-real { color: var(--real); }
+        .text-recip { color: var(--recip); }
+        .text-main { color: var(--text); }
+        .stat-hint { display: none; margin-top: 10px; font-size: 0.8rem; color: #ffb4a0; line-height: 1.4; }
+        .stat-hint.show { display: block; }
+
+        @media (max-width: 700px) {
+            #canvas-container { right: 0; }
+            #sheet {
+                display: block; position: fixed; top: auto; width: auto; left: 0; right: 0; bottom: 0; z-index: 10; border-left: 0;
+                max-height: 45vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+                background: var(--panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+                border-top: 1px solid var(--border); border-radius: 14px 14px 0 0;
+                box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5);
+            }
+            .floating-panel {
+                position: static; width: auto; padding: 14px 16px; border: 0; border-radius: 0; box-shadow: none;
+                background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+            }
+            #panel-right { border-top: 1px solid var(--border); }
+            .panel-title { font-size: 1rem; }
+            .panel-sub { margin-bottom: 12px; }
+            .control-group { margin-bottom: 12px; }
+            .title-overlay { top: 8px; font-size: 0.58rem; padding: 6px 8px; letter-spacing: 0.04em; max-width: 46vw; border-radius: 10px; line-height: 1.25; }
+            #title-real { left: 8px; border-left-width: 3px; }
+            #title-recip { right: 8px; border-right-width: 3px; text-align: right; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- On-screen Titles -->
+    <div id="title-real" class="title-overlay">Real Space (Crystal Lattice)</div>
+    <div id="title-recip" class="title-overlay">Reciprocal Space (Diffraction Lattice)</div>
+
+    <div id="sheet">
+    <!-- Left UI Panel (Controls) -->
+    <div id="panel-left" class="floating-panel">
+        <h1 class="panel-title">Crystal Parameters</h1>
+        <p class="panel-sub">Control lattice spacing &amp; Miller indices</p>
+
+        <div class="control-group">
+            <div class="control-label">
+                <span>Lattice Constant (a)</span>
+                <span id="val-a" class="val-display">2.00 Å</span>
+            </div>
+            <input type="range" id="slider-a" min="1.0" max="4.0" step="0.1" value="2.0" aria-label="Lattice constant a">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (h)</span> <span id="val-h" class="val-display">1</span></div>
+            <input type="range" id="slider-h" min="-2" max="2" step="1" value="1" aria-label="Miller index h">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (k)</span> <span id="val-k" class="val-display">1</span></div>
+            <input type="range" id="slider-k" min="-2" max="2" step="1" value="1" aria-label="Miller index k">
+        </div>
+
+        <div class="control-group">
+            <div class="control-label"><span>Miller Index (l)</span> <span id="val-l" class="val-display">0</span></div>
+            <input type="range" id="slider-l" min="-2" max="2" step="1" value="0" aria-label="Miller index l">
+        </div>
+    </div>
+
+    <!-- Right UI Panel (Information) -->
+    <div id="panel-right" class="floating-panel">
+        <h2 class="panel-title">Mapping Physics</h2>
+        <p class="panel-sub" style="margin-bottom:0">
+            Each set of planes (hkl) with spacing d maps to one reciprocal-lattice point at distance |G| = 1/d along the plane normal.
+        </p>
+
+        <div class="stat-box">
+            <div class="stat-row">
+                <span>Selected Plane (hkl):</span>
+                <span id="stat-hkl" class="stat-value text-main">(1, 1, 0)</span>
+            </div>
+            <div class="stat-row">
+                <span>Plane Spacing (d):</span>
+                <span id="stat-d" class="stat-value text-real">1.41 Å</span>
+            </div>
+            <div class="stat-row">
+                <span>Reciprocal Dist (|G| = 1/d):</span>
+                <span id="stat-g" class="stat-value text-recip">0.71 Å⁻¹</span>
+            </div>
+            <div id="stat-hint" class="stat-hint">(000) is not a plane — choose a non-zero index</div>
+        </div>
+    </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        // --- Global State & Configuration ---
+        let params = {
+            a: 2.0,      // Real lattice constant
+            h: 1,        // Miller index h
+            k: 1,        // Miller index k
+            l: 0         // Miller index l
+        };
+
+        const VISUAL_SCALE = 5.0; // Base scale for rendering distances
+        const CENTER_REAL = new THREE.Vector3(-8, 0, 0);
+        const CENTER_RECIP = new THREE.Vector3(8, 0, 0);
+        const THICKNESS = 0.045;  // Line thickness
+
+        let scene, camera, renderer, controls;
+
+        // Groups for managing 3D objects
+        const groups = {
+            realGrid: new THREE.Group(),
+            realLattice: new THREE.Group(),
+            realPlanes: new THREE.Group(),
+            realVector: new THREE.Group(),
+            recipGrid: new THREE.Group(),
+            recipLattice: new THREE.Group(),
+            recipVector: new THREE.Group()
+        };
+
+        // --- Core Materials ---
+        const materials = {
+            atom: new THREE.MeshBasicMaterial({ color: 0xb8c4d6 }),
+            atomCenter: new THREE.MeshBasicMaterial({ color: 0x34d399 }),
+
+            recipPoint: new THREE.MeshBasicMaterial({ color: 0x8c7a3c }),
+            recipActive: new THREE.MeshBasicMaterial({ color: 0xffd34d }),
+            recipCenter: new THREE.MeshBasicMaterial({ color: 0xf4f7ff }),
+            halo: new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }),
+
+            plane: new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+            planeEdge: new THREE.LineBasicMaterial({ color: 0x6ee7b7 }),
+
+            vectorReal: new THREE.MeshBasicMaterial({ color: 0xff4d5e }),
+            vectorRecip: new THREE.MeshBasicMaterial({ color: 0xffd34d }),
+            dim: new THREE.MeshBasicMaterial({ color: 0xd9ffee }),
+
+            realLatticeLine: new THREE.LineBasicMaterial({ color: 0x4b5d7a, transparent: true, opacity: 0.6 }),
+            recipLatticeLine: new THREE.LineBasicMaterial({ color: 0x6b5a2a, transparent: true, opacity: 0.25 })
+        };
+
+        const atomGeo = new THREE.SphereGeometry(0.22, 24, 24);
+        const atomCenterGeo = new THREE.SphereGeometry(0.3, 24, 24);
+        const recipGeo = new THREE.SphereGeometry(0.16, 16, 16);
+        const recipCenterGeo = new THREE.SphereGeometry(0.24, 20, 20);
+
+        init();
+        animate();
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x070b14, 0.006);
+
+            // 2. Camera Setup (both spaces side-by-side)
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.sortObjects = true;
+            container.appendChild(renderer.domElement);
+
+            // 4. Lighting
+            scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+
+            // 5. OrbitControls
+            fitCamera();
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, window.innerWidth < 700 ? -8 : -3, 0);
+
+            // 6. Add Groups
+            Object.values(groups).forEach(g => scene.add(g));
+
+            drawEnvironment();
+            rebuildAll();
+            setupEvents();
+        }
+
+        // Pull the camera back on narrow / tall viewports so both spaces stay visible
+        function fitCamera() {
+            const c = document.getElementById('canvas-container');
+            const aspect = c.clientWidth / c.clientHeight;
+            const dist = 36 * Math.max(1, 1.7 / aspect);
+            camera.position.set(0, 12 * Math.max(1, 1.7 / aspect), dist);
+        }
+
+        // Sprite label from a high-res canvas, dark pill background, always on top
+        function makeLabel(text, color = '#e6eef8', worldHeight = 0.9) {
+            const fontPx = 56, pad = 22;
+            const c = document.createElement('canvas');
+            const ctx = c.getContext('2d');
+            const font = `600 ${fontPx}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            ctx.font = font;
+            const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+            const h = fontPx + pad;
+            c.width = w; c.height = h;
+            ctx.font = font;
+            ctx.fillStyle = 'rgba(7, 11, 20, 0.82)';
+            ctx.strokeStyle = 'rgba(140, 190, 255, 0.35)';
+            ctx.lineWidth = 3;
+            const r = h / 2;
+            ctx.beginPath();
+            ctx.moveTo(r, 1.5); ctx.lineTo(w - r, 1.5);
+            ctx.arc(w - r, h / 2, r - 1.5, -Math.PI / 2, Math.PI / 2);
+            ctx.lineTo(r, h - 1.5);
+            ctx.arc(r, h / 2, r - 1.5, Math.PI / 2, Math.PI * 1.5);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = color;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, w / 2, h / 2 + 2);
+            const tex = new THREE.CanvasTexture(c);
+            tex.minFilter = THREE.LinearFilter;
+            const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true, fog: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(worldHeight * w / h, worldHeight, 1);
+            sprite.renderOrder = 999;
+            return sprite;
+        }
+
+        // Dispose children (geometries are shared for atoms, so only dispose sprites' textures and own geometry)
+        function clearGroup(g) {
+            g.children.slice().forEach(ch => {
+                if (ch.isSprite) { ch.material.map.dispose(); ch.material.dispose(); }
+                else if (ch.geometry && !ch.userData.sharedGeo) ch.geometry.dispose();
+                if (ch.children && ch.children.length) ch.children.forEach(c2 => { if (c2.geometry) c2.geometry.dispose(); });
+            });
+            g.clear();
+        }
+
+        // Helper for 3D thick cylinder vector lines
+        function createThickLine(p1, p2, material, radius = THICKNESS) {
+            const distance = p1.distanceTo(p2);
+            const geometry = new THREE.CylinderGeometry(radius, radius, distance, 12, 1, false);
+            const cylinder = new THREE.Mesh(geometry, material);
+            cylinder.position.copy(p1).lerp(p2, 0.5);
+
+            const direction = new THREE.Vector3().subVectors(p2, p1).normalize();
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+            cylinder.applyQuaternion(quaternion);
+
+            return cylinder;
+        }
+
+        // Cone arrowhead whose tip sits at `tip`, pointing along unit `dir`
+        function createArrowHead(tip, dir, material, radius, length) {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, length, 20), material);
+            cone.position.copy(tip).addScaledVector(dir, -length / 2);
+            cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+            return cone;
+        }
+
+        // Nearest-neighbour edges of an n x n x n grid (indices -N..N)
+        function latticeEdges(N, spacing, center) {
+            const pts = [];
+            for (let i = -N; i <= N; i++) for (let j = -N; j <= N; j++) for (let k = -N; k <= N; k++) {
+                const p = new THREE.Vector3(center.x + i * spacing, center.y + j * spacing, center.z + k * spacing);
+                if (i < N) pts.push(p, new THREE.Vector3(p.x + spacing, p.y, p.z));
+                if (j < N) pts.push(p, new THREE.Vector3(p.x, p.y + spacing, p.z));
+                if (k < N) pts.push(p, new THREE.Vector3(p.x, p.y, p.z + spacing));
+            }
+            return new THREE.BufferGeometry().setFromPoints(pts);
+        }
+
+        function drawEnvironment() {
+            // Divider line in the middle
+            const lineGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, -16, 0),
+                new THREE.Vector3(0, 16, 0)
+            ]);
+            const lineMat = new THREE.LineDashedMaterial({ color: 0x4b5d7a, dashSize: 0.5, gapSize: 0.5 });
+            const line = new THREE.Line(lineGeo, lineMat);
+            line.computeLineDistances();
+            scene.add(line);
+
+            // Floor Grids
+            const gridReal = new THREE.GridHelper(12, 12, 0x2f6b55, 0x1e3a33);
+            gridReal.position.copy(CENTER_REAL);
+            gridReal.position.y = -6;
+            scene.add(gridReal);
+
+            const gridRecip = new THREE.GridHelper(12, 12, 0x6b5a2a, 0x3a321c);
+            gridRecip.position.copy(CENTER_RECIP);
+            gridRecip.position.y = -6;
+            scene.add(gridRecip);
+        }
+
+        function rebuildAll() {
+            buildRealSpace();
+            buildReciprocalSpace();
+            updateMapping();
+        }
+
+        function buildRealSpace() {
+            groups.realGrid.clear();
+            clearGroup(groups.realLattice);
+            const N = 1; // 3x3x3 grid (-1 to 1)
+            const spacing = params.a * (VISUAL_SCALE / 2.0);
+
+            for (let i = -N; i <= N; i++) {
+                for (let j = -N; j <= N; j++) {
+                    for (let k = -N; k <= N; k++) {
+                        const isOrigin = (i === 0 && j === 0 && k === 0);
+                        const atom = new THREE.Mesh(isOrigin ? atomCenterGeo : atomGeo, isOrigin ? materials.atomCenter : materials.atom);
+                        atom.userData.sharedGeo = true;
+                        atom.position.set(
+                            CENTER_REAL.x + i * spacing,
+                            CENTER_REAL.y + j * spacing,
+                            CENTER_REAL.z + k * spacing
+                        );
+                        groups.realGrid.add(atom);
+                    }
+                }
+            }
+
+            groups.realLattice.add(new THREE.LineSegments(latticeEdges(N, spacing, CENTER_REAL), materials.realLatticeLine));
+        }
+
+        function buildReciprocalSpace() {
+            groups.recipGrid.clear();
+            clearGroup(groups.recipLattice);
+
+            const a_star = (1.0 / params.a) * (VISUAL_SCALE * 2.0);
+            const N = 2; // 5x5x5 grid
+
+            for (let i = -N; i <= N; i++) {
+                for (let j = -N; j <= N; j++) {
+                    for (let k = -N; k <= N; k++) {
+                        const isOrigin = (i === 0 && j === 0 && k === 0);
+                        const point = new THREE.Mesh(isOrigin ? recipCenterGeo : recipGeo, isOrigin ? materials.recipCenter : materials.recipPoint);
+                        point.position.set(
+                            CENTER_RECIP.x + i * a_star,
+                            CENTER_RECIP.y + j * a_star,
+                            CENTER_RECIP.z + k * a_star
+                        );
+                        point.userData = { h: i, k: j, l: k, sharedGeo: true };
+                        groups.recipGrid.add(point);
+                    }
+                }
+            }
+
+            groups.recipLattice.add(new THREE.LineSegments(latticeEdges(N, a_star, CENTER_RECIP), materials.recipLatticeLine));
+        }
+
+        function updateMapping() {
+            clearGroup(groups.realPlanes);
+            clearGroup(groups.realVector);
+            clearGroup(groups.recipVector);
+
+            const { h, k, l, a } = params;
+
+            // Origin labels (always shown)
+            const oR = makeLabel('O', '#e6eef8', 1.04);
+            oR.position.copy(CENTER_REAL).add(new THREE.Vector3(0, 0.85, 0));
+            groups.realVector.add(oR);
+            const oG = makeLabel('O', '#f4f7ff', 1.04);
+            oG.position.copy(CENTER_RECIP).add(new THREE.Vector3(0, 0.85, 0));
+            groups.recipVector.add(oG);
+
+            if (h === 0 && k === 0 && l === 0) {
+                updateUI(0, 0);
+                resetReciprocalHighlight();
+                return;
+            }
+
+            // Physics Calculations
+            const normal = new THREE.Vector3(h, k, l);
+            const hkl_magnitude = normal.length();
+            const d = a / hkl_magnitude;
+            const g_mag = 1.0 / d;
+
+            updateUI(d, g_mag);
+
+            const dir = normal.clone().normalize();
+
+            // 1. Draw Real Space Planes
+            const visual_d = d * (VISUAL_SCALE / 2.0);
+            const planeSize = VISUAL_SCALE * 3.2;
+            const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+            const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+
+            for (let n = -1; n <= 1; n++) {
+                const plane = new THREE.Mesh(planeGeo, materials.plane);
+                const pos = dir.clone().multiplyScalar(n * visual_d);
+                plane.position.copy(CENTER_REAL).add(pos);
+                plane.quaternion.copy(quaternion);
+
+                const edges = new THREE.EdgesGeometry(planeGeo);
+                plane.add(new THREE.LineSegments(edges, materials.planeEdge));
+
+                groups.realPlanes.add(plane);
+            }
+
+            // Real Space Normal Vector with arrowhead
+            const headLen = 0.7, headR = THICKNESS * 1.4 * 3.2;
+            const pRealStart = CENTER_REAL.clone();
+            const pRealEnd = CENTER_REAL.clone().add(dir.clone().multiplyScalar(visual_d));
+            const shaftEnd = pRealEnd.clone().addScaledVector(dir, -headLen * 0.9);
+            groups.realVector.add(createThickLine(pRealStart, shaftEnd, materials.vectorReal, THICKNESS * 1.4));
+            groups.realVector.add(createArrowHead(pRealEnd, dir, materials.vectorReal, headR, headLen));
+
+            const nLabel = makeLabel('n (normal)', '#ff8a96', 0.91);
+            nLabel.position.copy(pRealEnd).addScaledVector(dir, 0.9).add(new THREE.Vector3(0, 0.5, 0));
+            groups.realVector.add(nLabel);
+
+            // Dimension marker for d (offset in-plane so it does not overlap the normal)
+            let u = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+            if (u.lengthSq() < 1e-4) u = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(1, 0, 0));
+            u.normalize();
+            const off = u.clone().multiplyScalar(3.0);
+            const m0 = CENTER_REAL.clone().add(off);
+            const m1 = m0.clone().addScaledVector(dir, visual_d);
+            groups.realVector.add(createThickLine(m0, m1, materials.dim, 0.022));
+            [m0, m1].forEach(p => {
+                groups.realVector.add(createThickLine(p.clone().addScaledVector(u, -0.35), p.clone().addScaledVector(u, 0.35), materials.dim, 0.022));
+            });
+            const dLabel = makeLabel('d', '#a7f3d0', 1.04);
+            dLabel.position.copy(m0).lerp(m1, 0.5).addScaledVector(u, 0.7);
+            groups.realVector.add(dLabel);
+
+            // 2. Update Reciprocal Space Highlights
+            let targetPos = null;
+            groups.recipGrid.children.forEach(mesh => {
+                if (mesh.userData.h === h && mesh.userData.k === k && mesh.userData.l === l) {
+                    mesh.material = materials.recipActive;
+                    mesh.scale.set(1.8, 1.8, 1.8);
+                    targetPos = mesh.position.clone();
+                } else if (!(mesh.userData.h === 0 && mesh.userData.k === 0 && mesh.userData.l === 0)) {
+                    mesh.material = materials.recipPoint;
+                    mesh.scale.set(1, 1, 1);
+                }
+            });
+
+            // Reciprocal vector G (origin -> active point) with arrowhead and halo
+            if (targetPos) {
+                const gDir = targetPos.clone().sub(CENTER_RECIP).normalize();
+                const activeR = 0.16 * 1.8;
+                const tip = targetPos.clone().addScaledVector(gDir, -activeR);
+                const gHeadLen = 0.75, gHeadR = THICKNESS * 1.6 * 3.0;
+                const gShaftEnd = tip.clone().addScaledVector(gDir, -gHeadLen * 0.9);
+                groups.recipVector.add(createThickLine(CENTER_RECIP.clone(), gShaftEnd, materials.vectorRecip, THICKNESS * 1.6));
+                groups.recipVector.add(createArrowHead(tip, gDir, materials.vectorRecip, gHeadR, gHeadLen));
+
+                const halo = new THREE.Mesh(new THREE.SphereGeometry(0.45, 24, 24), materials.halo);
+                halo.position.copy(targetPos);
+                groups.recipVector.add(halo);
+
+                const gLabel = makeLabel(`G(${h}${k}${l}) = 1/d`, '#ffe38a', 0.98);
+                gLabel.position.copy(CENTER_RECIP).lerp(targetPos, 0.5).add(new THREE.Vector3(0, 0.9, 0));
+                groups.recipVector.add(gLabel);
+            }
+        }
+
+        function resetReciprocalHighlight() {
+            groups.recipGrid.children.forEach(mesh => {
+                if (!(mesh.userData.h === 0 && mesh.userData.k === 0 && mesh.userData.l === 0)) {
+                    mesh.material = materials.recipPoint;
+                    mesh.scale.set(1, 1, 1);
+                }
+            });
+        }
+
+        function updateUI(d, g) {
+            const zero = (params.h === 0 && params.k === 0 && params.l === 0);
+            document.getElementById('stat-hkl').innerText = `(${params.h}, ${params.k}, ${params.l})`;
+            document.getElementById('stat-d').innerText = zero ? "—" : `${d.toFixed(2)} Å`;
+            document.getElementById('stat-g').innerText = zero ? "—" : `${g.toFixed(2)} Å⁻¹`;
+            document.getElementById('stat-hint').classList.toggle('show', zero);
+        }
+
+        function setupEvents() {
+            document.getElementById('slider-a').addEventListener('input', (e) => {
+                params.a = parseFloat(e.target.value);
+                document.getElementById('val-a').innerText = params.a.toFixed(2) + ' Å';
+                rebuildAll();
+            });
+
+            const updateIndices = () => {
+                params.h = parseInt(document.getElementById('slider-h').value);
+                params.k = parseInt(document.getElementById('slider-k').value);
+                params.l = parseInt(document.getElementById('slider-l').value);
+
+                document.getElementById('val-h').innerText = params.h;
+                document.getElementById('val-k').innerText = params.k;
+                document.getElementById('val-l').innerText = params.l;
+
+                updateMapping();
+            };
+
+            document.getElementById('slider-h').addEventListener('input', updateIndices);
+            document.getElementById('slider-k').addEventListener('input', updateIndices);
+            document.getElementById('slider-l').addEventListener('input', updateIndices);
+
+            window.addEventListener('resize', () => {
+                const c = document.getElementById('canvas-container');
+                camera.aspect = c.clientWidth / c.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(c.clientWidth, c.clientHeight);
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
